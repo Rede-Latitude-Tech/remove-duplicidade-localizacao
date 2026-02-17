@@ -1,0 +1,69 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Grupo de registros identificados como possíveis duplicatas.
+/// Agrupa N membros (não apenas pares). Ex: "Marista", "Setor Marista", "St. Marista" = 1 grupo.
+model ms_grupo_duplicata {
+  id                      String    @id @default(uuid()) @db.Uuid
+  tipo_entidade           Int       @db.SmallInt           // 1=Cidade, 2=Bairro, 3=Logradouro, 4=Condominio
+  parent_id               String?   @db.VarChar(50)        // cidade_id, bairro_id, logradouro_id
+  parent_nome             String?   @db.VarChar(250)       // nome do pai para exibição
+  nome_normalizado        String    @db.VarChar(250)       // nome normalizado do grupo (chave de agrupamento)
+  registro_ids            String[]                         // IDs de todos os membros do grupo
+  nomes_membros           String[]                         // nomes originais de cada membro (mesma ordem de registro_ids)
+  nome_canonico           String?   @db.VarChar(250)       // nome correto escolhido pelo admin
+  registro_canonico_id    String?   @db.VarChar(50)        // ID do registro escolhido como correto
+  score_medio             Decimal   @db.Decimal(3, 2)      // score médio de similaridade
+  fonte                   String?   @db.VarChar(50)        // "pg_trgm", "LLM", "manual"
+  detalhes_llm            String?   @db.Text               // resposta raw do LLM para auditoria
+  status                  Int       @db.SmallInt @default(1) // 1=Pendente, 2=Executado, 3=Descartado, 4=Revertido
+  total_registros_afetados Int      @default(0)            // total de FKs que serão atualizadas
+  executado_por           String?   @db.Uuid
+  data_criacao            DateTime  @default(now())
+  data_execucao           DateTime?
+  data_reversao           DateTime?
+
+  logs ms_merge_log[]
+
+  @@index([status])
+  @@index([tipo_entidade, status])
+}
+
+/// Log granular de cada FK alterada durante execução de merge.
+/// Permite rollback completo de qualquer unificação.
+model ms_merge_log {
+  id                    String    @id @default(uuid()) @db.Uuid
+  grupo_id              String    @db.Uuid
+  registro_eliminado_id String    @db.VarChar(50)     // ID do registro "absorvido"
+  tabela_afetada        String    @db.VarChar(100)    // "imovel", "imovel_endereco", "pessoa", etc.
+  registro_afetado_id   String    @db.VarChar(50)     // ID do registro cujo FK mudou
+  coluna_alterada       String    @db.VarChar(100)    // "logradouro_id", "bairro_comercial_id", etc.
+  valor_anterior        String    @db.VarChar(50)
+  valor_novo            String    @db.VarChar(50)
+  data_execucao         DateTime  @default(now())
+  revertido             Boolean   @default(false)
+  data_reversao         DateTime?
+
+  grupo ms_grupo_duplicata @relation(fields: [grupo_id], references: [id], onDelete: Cascade)
+
+  @@index([grupo_id])
+  @@index([registro_eliminado_id])
+}
+
+/// Histórico de execuções do job de detecção.
+model ms_execucao_log {
+  id               String   @id @default(uuid()) @db.Uuid
+  tipo             String   @db.VarChar(50)   // "deteccao-batch", "scan-manual"
+  status           String   @db.VarChar(20)   // "iniciado", "concluido", "erro"
+  total_analisados Int      @default(0)
+  total_grupos     Int      @default(0)
+  duracao_ms       Int?
+  erro             String?  @db.Text
+  data_execucao    DateTime @default(now())
+}
