@@ -1,9 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 
 // Instância singleton do Prisma — usada por todos os services
+// Em development loga apenas erros e warns (query é muito verboso)
 export const prisma = new PrismaClient({
-    log:
-        process.env.NODE_ENV === "development"
-            ? ["query", "error", "warn"]
-            : ["error"],
+    log: ["error", "warn"],
 });
