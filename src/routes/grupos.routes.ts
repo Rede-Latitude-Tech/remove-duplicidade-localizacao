@@ -88,8 +88,9 @@ export async function gruposRoutes(app: FastifyInstance) {
                         logradouro_nome: c.logradouro_nome,
                     }])
                 );
-            } catch {
-                // Ignora erro — contextos podem não existir ainda (pré-enriquecimento)
+            } catch (err) {
+                // Log para diagnóstico — contextos podem não existir ainda (pré-enriquecimento)
+                console.error("[grupos] Erro ao buscar hierarquia:", err);
             }
         }
 

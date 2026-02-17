@@ -79,7 +79,7 @@ class MergeService {
         // Contador total de alterações realizadas (FKs atualizadas)
         let totalAlteracoes = 0;
 
-        // Executa tudo dentro de uma transação para atomicidade
+        // Executa tudo dentro de uma transação (timeout 30s para tabelas grandes como imovel_endereco)
         await prisma.$transaction(async (tx) => {
             // Processa cada membro eliminado
             for (const membroId of membrosEliminados) {
@@ -89,11 +89,14 @@ class MergeService {
                     const castSuffix =
                         fk.tipoId === "uuid" ? "::uuid" : "::int";
 
+                    // Coluna PK da tabela referenciadora (default: "id", configurável via pkColuna)
+                    const pkCol = fk.pkColuna ?? "id";
+
                     // Busca todos os registros afetados (que apontam para o membro eliminado)
                     const registrosAfetados = await tx.$queryRawUnsafe<
-                        { id: string }[]
+                        { pk_val: string }[]
                     >(
-                        `SELECT id::text FROM ${fk.tabela} WHERE ${fk.coluna} = $1${castSuffix}`,
+                        `SELECT ${pkCol}::text AS pk_val FROM ${fk.tabela} WHERE ${fk.coluna} = $1${castSuffix}`,
                         membroId
                     );
 
@@ -113,7 +116,7 @@ class MergeService {
                                     grupo_id: grupoId,
                                     registro_eliminado_id: membroId,
                                     tabela_afetada: fk.tabela,
-                                    registro_afetado_id: registro.id,
+                                    registro_afetado_id: registro.pk_val,
                                     coluna_alterada: fk.coluna,
                                     valor_anterior: membroId,
                                     valor_novo: registroCanonicoId,
@@ -153,7 +156,7 @@ class MergeService {
                     total_registros_afetados: totalAlteracoes,
                 },
             });
-        });
+        }, { timeout: 30000 }); // 30s timeout para tabelas grandes
 
         return {
             mensagem: `Grupo ${grupoId} unificado com sucesso. ${membrosEliminados.length} registro(s) eliminado(s), ${totalAlteracoes} FK(s) redirecionada(s).`,
@@ -233,7 +236,7 @@ class MergeService {
         await prisma.$transaction(async (tx) => {
             // Reverte cada alteração de FK individualmente usando o log
             for (const log of logs) {
-                // Determina o cast baseado na FK (busca na configuração)
+                // Determina o cast e PK baseado na FK (busca na configuração)
                 const fkConfig = fks.find(
                     (fk) =>
                         fk.tabela === log.tabela_afetada &&
@@ -241,10 +244,12 @@ class MergeService {
                 );
                 const castSuffix =
                     fkConfig?.tipoId === "int" ? "::int" : "::uuid";
+                // Usa pkColuna da config ou default "id"
+                const pkCol = fkConfig?.pkColuna ?? "id";
 
                 // Restaura o valor anterior da FK no registro afetado
                 await tx.$queryRawUnsafe(
-                    `UPDATE ${log.tabela_afetada} SET ${log.coluna_alterada} = $1${castSuffix} WHERE id = $2::uuid`,
+                    `UPDATE ${log.tabela_afetada} SET ${log.coluna_alterada} = $1${castSuffix} WHERE ${pkCol} = $2::uuid`,
                     log.valor_anterior,
                     log.registro_afetado_id
                 );
@@ -280,7 +285,7 @@ class MergeService {
                     data_reversao: new Date(),
                 },
             });
-        });
+        }, { timeout: 30000 }); // 30s timeout
 
         return {
             mensagem: `Grupo ${grupoId} revertido com sucesso. ${logs.length} alteração(ões) desfeita(s), ${membrosEliminados.length} registro(s) reativado(s).`,

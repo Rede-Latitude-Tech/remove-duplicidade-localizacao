@@ -9,16 +9,21 @@ interface FkRef {
     coluna: string;
     // Tipo do ID na tabela referenciadora (para cast correto na query)
     tipoId: "uuid" | "int";
+    // Nome da coluna PK da tabela (default: "id"). Para tabelas sem coluna "id"
+    // (ex: imovel_endereco usa "imovel_id", benfeitoria_condominio usa PK composta)
+    pkColuna?: string;
 }
 
 export const FK_MAP: Record<number, FkRef[]> = {
     // Bairro → 4 referências
     [TipoEntidade.Bairro]: [
         { tabela: "logradouro", coluna: "bairro_id", tipoId: "uuid" },
+        // imovel_endereco não tem coluna "id" — PK é "imovel_id"
         {
             tabela: "imovel_endereco",
             coluna: "bairro_comercial_id",
             tipoId: "uuid",
+            pkColuna: "imovel_id",
         },
         { tabela: "empresa", coluna: "bairro_id", tipoId: "uuid" },
         {
@@ -47,13 +52,16 @@ export const FK_MAP: Record<number, FkRef[]> = {
 
     // Condomínio → 6 referências
     [TipoEntidade.Condominio]: [
-        { tabela: "imovel_endereco", coluna: "condominio_id", tipoId: "uuid" },
+        // imovel_endereco não tem coluna "id" — PK é "imovel_id"
+        { tabela: "imovel_endereco", coluna: "condominio_id", tipoId: "uuid", pkColuna: "imovel_id" },
         { tabela: "pessoa", coluna: "condominio_id", tipoId: "uuid" },
         { tabela: "building", coluna: "condominio_id", tipoId: "uuid" },
+        // benfeitoria_condominio tem PK composta — usa condominios_id como PK para log
         {
             tabela: "benfeitoria_condominio",
             coluna: "condominios_id",
             tipoId: "uuid",
+            pkColuna: "benfeitorias_id",
         },
         {
             tabela: "condominio_imagem",
