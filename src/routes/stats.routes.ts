@@ -64,4 +64,77 @@ export async function statsRoutes(app: FastifyInstance) {
             ultimaDeteccao: ultimaExecucao?.data_execucao ?? null,
         };
     });
+
+    // GET /stats/ranking-cidades — ranking de cidades com mais grupos de duplicatas pendentes
+    app.get("/ranking-cidades", async () => {
+        // Agrupa por parent_id (cidade) e conta grupos pendentes
+        const ranking = await prisma.$queryRawUnsafe<
+            Array<{
+                parent_id: string;
+                cidade_nome: string;
+                estado_sigla: string;
+                total_grupos: bigint;
+                total_bairros: bigint;
+                total_logradouros: bigint;
+                total_condominios: bigint;
+            }>
+        >(`
+            SELECT
+                g.parent_id,
+                c.nome as cidade_nome,
+                c.estado_id as estado_sigla,
+                COUNT(*) as total_grupos,
+                COUNT(*) FILTER (WHERE g.tipo_entidade = 2) as total_bairros,
+                COUNT(*) FILTER (WHERE g.tipo_entidade = 3) as total_logradouros,
+                COUNT(*) FILTER (WHERE g.tipo_entidade = 4) as total_condominios
+            FROM ms_grupo_duplicata g
+            JOIN cidade c ON c.id = g.parent_id::int
+            WHERE g.status = 1
+            AND g.parent_id IS NOT NULL
+            AND g.tipo_entidade IN (2, 3, 4)
+            GROUP BY g.parent_id, c.nome, c.estado_id
+            ORDER BY COUNT(*) DESC
+            LIMIT 50
+        `);
+
+        return {
+            data: ranking.map((r) => ({
+                parentId: r.parent_id,
+                cidadeNome: r.cidade_nome,
+                estadoSigla: r.estado_sigla,
+                totalGrupos: Number(r.total_grupos),
+                totalBairros: Number(r.total_bairros),
+                totalLogradouros: Number(r.total_logradouros),
+                totalCondominios: Number(r.total_condominios),
+            })),
+        };
+    });
+
+    // GET /stats/cidades — lista cidades que têm grupos (para dropdown de filtro)
+    app.get("/cidades", async () => {
+        const cidades = await prisma.$queryRawUnsafe<
+            Array<{ parent_id: string; cidade_nome: string; estado_sigla: string; total: bigint }>
+        >(`
+            SELECT
+                g.parent_id,
+                c.nome as cidade_nome,
+                c.estado_id as estado_sigla,
+                COUNT(*) as total
+            FROM ms_grupo_duplicata g
+            JOIN cidade c ON c.id = g.parent_id::int
+            WHERE g.status = 1
+            AND g.parent_id IS NOT NULL
+            AND g.tipo_entidade IN (2, 3, 4)
+            GROUP BY g.parent_id, c.nome, c.estado_id
+            ORDER BY c.nome
+        `);
+
+        return {
+            data: cidades.map((c) => ({
+                id: c.parent_id,
+                nome: `${c.cidade_nome} - ${c.estado_sigla}`,
+                total: Number(c.total),
+            })),
+        };
+    });
 }

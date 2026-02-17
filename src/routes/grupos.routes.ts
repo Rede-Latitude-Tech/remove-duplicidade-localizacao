@@ -5,13 +5,15 @@ import { impactoService } from "../services/impacto.service.js";
 
 // Rotas de listagem e detalhe de grupos de duplicatas
 export async function gruposRoutes(app: FastifyInstance) {
-    // GET /grupos — lista grupos de duplicatas com filtros
+    // GET /grupos — lista grupos de duplicatas com filtros (tipo, status, parentId, busca)
     app.get("/", async (request, reply) => {
-        const { tipo, status, pagina, tamanhoPagina } = request.query as {
+        const { tipo, status, pagina, tamanhoPagina, parentId, busca } = request.query as {
             tipo?: string;
             status?: string;
             pagina?: string;
             tamanhoPagina?: string;
+            parentId?: string;  // Filtro por cidade (parent_id)
+            busca?: string;     // Busca por nome
         };
 
         const page = parseInt(pagina ?? "1");
@@ -22,6 +24,8 @@ export async function gruposRoutes(app: FastifyInstance) {
         if (tipo) where.tipo_entidade = parseInt(tipo);
         if (status) where.status = parseInt(status);
         else where.status = StatusGrupo.Pendente; // padrão: apenas pendentes
+        if (parentId) where.parent_id = parentId;  // Filtra por cidade
+        if (busca) where.nome_normalizado = { contains: busca.toLowerCase() };
 
         const [data, total] = await Promise.all([
             prisma.ms_grupo_duplicata.findMany({
@@ -33,7 +37,28 @@ export async function gruposRoutes(app: FastifyInstance) {
             prisma.ms_grupo_duplicata.count({ where }),
         ]);
 
-        return { data, total };
+        // Preenche parent_nome com o nome da cidade via SQL (bairros e logradouros têm parent_id = cidade_id)
+        const parentIds = [...new Set(data.map((g) => g.parent_id).filter(Boolean))];
+        let cidadeNomes: Record<string, string> = {};
+        if (parentIds.length > 0) {
+            try {
+                const cidades = await prisma.$queryRawUnsafe<Array<{ id: string; nome: string }>>(
+                    `SELECT id::text, nome FROM cidade WHERE id = ANY($1::int[])`,
+                    parentIds.map((id) => parseInt(id!, 10))
+                );
+                cidadeNomes = Object.fromEntries(cidades.map((c) => [c.id, c.nome]));
+            } catch {
+                // Ignora erro se parent_id não for int (ex: condomínios)
+            }
+        }
+
+        // Anexa parent_nome a cada grupo
+        const dataComNome = data.map((g) => ({
+            ...g,
+            parent_nome: g.parent_id ? cidadeNomes[g.parent_id] ?? null : null,
+        }));
+
+        return { data: dataComNome, total };
     });
 
     // GET /grupos/:id — detalhe de um grupo com membros, impacto e contexto hierárquico
