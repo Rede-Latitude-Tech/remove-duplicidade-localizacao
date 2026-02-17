@@ -29,7 +29,12 @@ model ms_grupo_duplicata {
   data_execucao           DateTime?
   data_reversao           DateTime?
 
+  nome_oficial            String?   @db.VarChar(250)       // nome oficial da API externa
+  fonte_oficial           String?   @db.VarChar(50)        // "IBGE", "ViaCEP", "Google"
+  canonico_sugerido_id    String?   @db.VarChar(50)        // ID do membro sugerido automaticamente
+
   logs ms_merge_log[]
+  contextos ms_membro_contexto[]
 
   @@index([status])
   @@index([tipo_entidade, status])
@@ -66,4 +71,30 @@ model ms_execucao_log {
   duracao_ms       Int?
   erro             String?  @db.Text
   data_execucao    DateTime @default(now())
+}
+
+/// Contexto hierárquico de cada membro de um grupo de duplicatas.
+/// Preenchido durante o enriquecimento pós-scan.
+model ms_membro_contexto {
+  id                String    @id @default(uuid()) @db.Uuid
+  grupo_id          String    @db.Uuid
+  registro_id       String    @db.VarChar(50)
+
+  // Hierarquia (preenchido conforme tipo_entidade)
+  cidade_nome       String?   @db.VarChar(250)
+  cidade_id         String?   @db.VarChar(50)
+  estado_sigla      String?   @db.VarChar(5)
+  bairro_nome       String?   @db.VarChar(250)
+  bairro_id         String?   @db.VarChar(50)
+  logradouro_nome   String?   @db.VarChar(250)
+  logradouro_id     String?   @db.VarChar(50)
+  ceps              String[]                     // CEPs associados
+  total_logradouros Int?                         // para bairros
+  total_condominios Int?                         // para logradouros
+  total_bairros     Int?                         // para cidades
+
+  grupo ms_grupo_duplicata @relation(fields: [grupo_id], references: [id], onDelete: Cascade)
+
+  @@index([grupo_id])
+  @@index([registro_id])
 }
