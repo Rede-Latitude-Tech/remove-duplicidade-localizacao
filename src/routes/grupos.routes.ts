@@ -54,10 +54,51 @@ export async function gruposRoutes(app: FastifyInstance) {
             }
         }
 
-        // Anexa parent_nome a cada grupo
+        // Busca hierarquia completa (UF → Cidade → Bairro → Logradouro) via ms_membro_contexto
+        // Pega o contexto do primeiro membro de cada grupo para exibir na listagem
+        const grupoIds = data.map((g) => g.id);
+        let hierarquiaPorGrupo: Record<string, {
+            estado_sigla: string | null;
+            cidade_nome: string | null;
+            bairro_nome: string | null;
+            logradouro_nome: string | null;
+        }> = {};
+        if (grupoIds.length > 0) {
+            try {
+                // DISTINCT ON pega apenas o primeiro contexto por grupo (evita duplicatas)
+                const contextos = await prisma.$queryRawUnsafe<Array<{
+                    grupo_id: string;
+                    estado_sigla: string | null;
+                    cidade_nome: string | null;
+                    bairro_nome: string | null;
+                    logradouro_nome: string | null;
+                }>>(
+                    `SELECT DISTINCT ON (grupo_id)
+                        grupo_id, estado_sigla, cidade_nome, bairro_nome, logradouro_nome
+                     FROM ms_membro_contexto
+                     WHERE grupo_id = ANY($1::uuid[])
+                     ORDER BY grupo_id, id`,
+                    grupoIds
+                );
+                hierarquiaPorGrupo = Object.fromEntries(
+                    contextos.map((c) => [c.grupo_id, {
+                        estado_sigla: c.estado_sigla,
+                        cidade_nome: c.cidade_nome,
+                        bairro_nome: c.bairro_nome,
+                        logradouro_nome: c.logradouro_nome,
+                    }])
+                );
+            } catch {
+                // Ignora erro — contextos podem não existir ainda (pré-enriquecimento)
+            }
+        }
+
+        // Anexa parent_nome e hierarquia a cada grupo
         const dataComNome = data.map((g) => ({
             ...g,
             parent_nome: g.parent_id ? cidadeNomes[g.parent_id] ?? null : null,
+            // Hierarquia completa do endereço (UF > Cidade > Bairro > Logradouro)
+            hierarquia: hierarquiaPorGrupo[g.id] ?? null,
         }));
 
         return { data: dataComNome, total };
