@@ -25,6 +25,9 @@ const envSchema = z.object({
     // Google Geocoding API (fallback para nome oficial)
     GOOGLE_GEOCODING_API_KEY: z.string().optional(),
 
+    // OpenAI API para validação LLM de duplicatas
+    OPENAI_API_KEY: z.string().optional(),
+
     // Enriquecimento — controle de APIs externas
     ENRIQUECIMENTO_HABILITADO: z
         .enum(["true", "false"])

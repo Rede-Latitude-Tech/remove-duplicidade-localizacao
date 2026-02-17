@@ -16,6 +16,7 @@ import {
 } from "../types/index.js";
 import { normalizadorService } from "./normalizador.service.js";
 import { enriquecimentoService } from "./enriquecimento.service.js";
+import { openaiValidationService } from "./apis/openai.service.js";
 
 // Tipo retornado pela query raw de similaridade pg_trgm
 interface ParSimilarRaw {
@@ -116,11 +117,96 @@ class DeteccaoService {
                 // Detecta grupos para esse tipo (sem filtro de parentId, pega todos)
                 const grupos = await this.detectarPorTipo(tipoAtual, null);
 
+                console.log(
+                    `[DeteccaoService] Tipo ${TIPO_ENTIDADE_TABELA[tipoAtual as TipoEntidade]}: ${grupos.length} candidatos encontrados pelo pg_trgm`
+                );
+
                 // Coleta IDs dos grupos criados para enriquecimento posterior
                 const grupoIdsCriados: string[] = [];
+                let descartadosLlm = 0;
 
-                for (const grupo of grupos) {
-                    // Persiste o grupo e captura o ID gerado
+                // Validação LLM em batch: processa lotes de 10 grupos por chamada ao GPT-5.2
+                const BATCH_SIZE = 10;
+                const tipoLabel = TIPO_ENTIDADE_TABELA[tipoAtual as TipoEntidade];
+                // Array de validações LLM paralelo aos grupos (null = sem validação)
+                const validacoesLlm: Array<Record<string, unknown> | null> = new Array(grupos.length).fill(null);
+
+                if (openaiValidationService.disponivel) {
+                    for (let batchStart = 0; batchStart < grupos.length; batchStart += BATCH_SIZE) {
+                        const batchGrupos = grupos.slice(batchStart, batchStart + BATCH_SIZE);
+
+                        // Busca contexto geográfico de cada grupo do lote
+                        const gruposParaLlm = [];
+                        for (const grupo of batchGrupos) {
+                            const contexto = await this.buscarContextoParaLLM(
+                                tipoAtual as TipoEntidade,
+                                grupo.parentId,
+                                grupo.registroIds[0]
+                            );
+                            gruposParaLlm.push({
+                                nomesMembros: grupo.nomesMembros,
+                                registroIds: grupo.registroIds,
+                                contexto,
+                            });
+                        }
+
+                        // Envia lote de até 10 grupos ao LLM numa única chamada
+                        const resultadosBatch = await openaiValidationService.validarGruposBatch(
+                            gruposParaLlm,
+                            tipoLabel
+                        );
+
+                        // Mapeia resultados de volta para os índices originais
+                        for (const [batchIdx, validacao] of resultadosBatch) {
+                            const originalIdx = batchStart + batchIdx;
+                            validacoesLlm[originalIdx] = {
+                                saoDuplicatas: validacao.saoDuplicatas,
+                                confianca: validacao.confianca,
+                                nomeCanonico: validacao.nomeCanonico,
+                                justificativa: validacao.justificativa,
+                                membrosValidos: validacao.membrosValidos,
+                            };
+                        }
+
+                        console.log(
+                            `[DeteccaoService] LLM batch ${Math.floor(batchStart / BATCH_SIZE) + 1}/${Math.ceil(grupos.length / BATCH_SIZE)} processado`
+                        );
+                    }
+                }
+
+                // Persiste apenas grupos confirmados pelo LLM (ou todos se LLM indisponível)
+                for (let i = 0; i < grupos.length; i++) {
+                    const grupo = grupos[i];
+                    const detalhesLlm = validacoesLlm[i];
+
+                    if (detalhesLlm) {
+                        // LLM descartou o grupo — não persiste
+                        if (!(detalhesLlm as any).saoDuplicatas) {
+                            descartadosLlm++;
+                            console.log(
+                                `[DeteccaoService] LLM descartou: [${grupo.nomesMembros.join(", ")}] — ${(detalhesLlm as any).justificativa}`
+                            );
+                            continue;
+                        }
+
+                        const membrosValidos = (detalhesLlm as any).membrosValidos as string[];
+
+                        // LLM confirmou mas pode ter removido membros falso-positivos
+                        if (membrosValidos && membrosValidos.length >= 2 &&
+                            membrosValidos.length < grupo.registroIds.length) {
+                            const indicesValidos = grupo.registroIds
+                                .map((id, idx) => membrosValidos.includes(id) ? idx : -1)
+                                .filter(idx => idx >= 0);
+                            grupo.registroIds = indicesValidos.map(idx => grupo.registroIds[idx]);
+                            grupo.nomesMembros = indicesValidos.map(idx => grupo.nomesMembros[idx]);
+                        }
+
+                        // Usa nome canônico sugerido pelo LLM
+                        const nomeCanonico = (detalhesLlm as any).nomeCanonico;
+                        if (nomeCanonico) grupo.nomeNormalizado = nomeCanonico;
+                    }
+
+                    // Persiste o grupo confirmado
                     const criado = await prisma.ms_grupo_duplicata.create({
                         data: {
                             tipo_entidade: grupo.tipoEntidade,
@@ -129,21 +215,25 @@ class DeteccaoService {
                             registro_ids: grupo.registroIds,
                             nomes_membros: grupo.nomesMembros,
                             score_medio: grupo.scoreMedio,
-                            fonte: "pg_trgm",
+                            fonte: openaiValidationService.disponivel ? "pg_trgm+llm" : "pg_trgm",
+                            // Serializa detalhes LLM como JSON string (campo é text no banco)
+                            detalhes_llm: detalhesLlm ? JSON.stringify(detalhesLlm) : undefined,
                             status: 1,
                         },
                     });
                     grupoIdsCriados.push(criado.id);
                 }
 
-                totalGrupos += grupos.length;
+                totalGrupos += grupoIdsCriados.length;
                 totalAnalisados += grupos.reduce(
                     (acc, g) => acc + g.registroIds.length,
                     0
                 );
 
                 console.log(
-                    `[DeteccaoService] Tipo ${TIPO_ENTIDADE_TABELA[tipoAtual as TipoEntidade]}: ${grupos.length} grupos encontrados`
+                    `[DeteccaoService] Tipo ${TIPO_ENTIDADE_TABELA[tipoAtual as TipoEntidade]}: ` +
+                    `${grupoIdsCriados.length} grupos confirmados` +
+                    (descartadosLlm > 0 ? `, ${descartadosLlm} descartados pelo LLM` : "")
                 );
 
                 // Enriquece os grupos recém-criados com hierarquia e nome oficial
@@ -206,6 +296,7 @@ class DeteccaoService {
         if (tipoEntidade === TipoEntidade.Condominio) {
             // Condomínio: compara dentro do mesmo logradouro, mas retorna cidade_id como parent_id
             // JOIN: condominio → logradouro → bairro → cidade para extrair cidade_id numérico
+            // pg_trgm é o filtro bruto — a validação fina é feita pelo LLM depois
             query = `
                 SELECT
                     a.id::text AS id_a,
@@ -433,6 +524,74 @@ class DeteccaoService {
         }
 
         return grupos;
+    }
+
+    /**
+     * Busca contexto geográfico de um registro para enviar ao LLM.
+     * Navega pela hierarquia para obter cidade, estado, bairro e logradouro.
+     */
+    private async buscarContextoParaLLM(
+        tipo: TipoEntidade,
+        parentId: string | null,
+        primeiroMembroId: string
+    ): Promise<{ cidade?: string; estado?: string; bairro?: string; logradouro?: string }> {
+        try {
+            if (tipo === TipoEntidade.Cidade && parentId) {
+                // Cidade: parent_id é o estado_id (sigla)
+                return { estado: parentId };
+            }
+
+            if (tipo === TipoEntidade.Bairro && parentId) {
+                // Bairro: parent_id é cidade_id (numérico)
+                const rows = await prisma.$queryRawUnsafe<Array<{ nome: string; estado_id: string }>>(
+                    `SELECT nome, estado_id FROM cidade WHERE id = $1::int`,
+                    parseInt(parentId, 10)
+                );
+                if (rows.length > 0) {
+                    return { cidade: rows[0].nome, estado: rows[0].estado_id };
+                }
+            }
+
+            if (tipo === TipoEntidade.Logradouro) {
+                // Logradouro: busca bairro e cidade via membro
+                const rows = await prisma.$queryRawUnsafe<Array<{
+                    bairro_nome: string; cidade_nome: string; estado_id: string;
+                }>>(
+                    `SELECT b.nome as bairro_nome, c.nome as cidade_nome, c.estado_id
+                     FROM logradouro l JOIN bairro b ON b.id = l.bairro_id JOIN cidade c ON c.id = b.cidade_id
+                     WHERE l.id = $1::uuid`,
+                    primeiroMembroId
+                );
+                if (rows.length > 0) {
+                    return { bairro: rows[0].bairro_nome, cidade: rows[0].cidade_nome, estado: rows[0].estado_id };
+                }
+            }
+
+            if (tipo === TipoEntidade.Condominio) {
+                // Condomínio: busca logradouro, bairro e cidade via membro
+                const rows = await prisma.$queryRawUnsafe<Array<{
+                    logradouro_nome: string; bairro_nome: string; cidade_nome: string; estado_id: string;
+                }>>(
+                    `SELECT l.nome as logradouro_nome, b.nome as bairro_nome, c.nome as cidade_nome, c.estado_id
+                     FROM condominio co JOIN logradouro l ON l.id = co.logradouro_id
+                     JOIN bairro b ON b.id = l.bairro_id JOIN cidade c ON c.id = b.cidade_id
+                     WHERE co.id = $1::uuid`,
+                    primeiroMembroId
+                );
+                if (rows.length > 0) {
+                    return {
+                        logradouro: rows[0].logradouro_nome,
+                        bairro: rows[0].bairro_nome,
+                        cidade: rows[0].cidade_nome,
+                        estado: rows[0].estado_id,
+                    };
+                }
+            }
+        } catch (err) {
+            console.warn(`[DeteccaoService] Erro ao buscar contexto para LLM:`, err);
+        }
+
+        return {};
     }
 }
 
