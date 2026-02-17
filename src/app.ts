@@ -16,8 +16,8 @@ const app = Fastify({
     },
 });
 
-// Plugins de segurança e CORS
-await app.register(cors, { origin: true });
+// Plugins de segurança e CORS (methods inclui PUT/DELETE para merge/reversão/descarte)
+await app.register(cors, { origin: true, methods: ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"] });
 await app.register(helmet);
 
 // Rotas
