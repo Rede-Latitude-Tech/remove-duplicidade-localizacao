@@ -47,6 +47,10 @@ class EnriquecimentoService {
             return;
         }
 
+        console.log(
+            `[Enriquecimento] Iniciando enriquecimento de ${grupoIds.length} grupo(s)...`
+        );
+
         // Processa cada grupo individualmente com try/catch isolado
         for (const grupoId of grupoIds) {
             try {

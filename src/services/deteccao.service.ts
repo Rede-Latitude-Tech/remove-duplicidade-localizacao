@@ -51,10 +51,12 @@ class DeteccaoService {
         const parentCol = TIPO_ENTIDADE_PARENT_COL[tipo as TipoEntidade];
 
         // Monta e executa a query de similaridade pg_trgm
+        // Passa o tipoEntidade para tratar condomínios com query especial (cidade_id como parent)
         const pares = await this.buscarParesSimilares(
             tabela,
             parentCol,
-            parentId
+            parentId,
+            tipo as TipoEntidade
         );
 
         // Se não encontrou pares, retorna vazio
@@ -186,11 +188,13 @@ class DeteccaoService {
     /**
      * Executa query pg_trgm para encontrar pares de registros similares
      * dentro da mesma tabela e mesmo contexto-pai.
+     * Para condomínios, usa query especial que navega até cidade_id como parent_id.
      */
     private async buscarParesSimilares(
         tabela: string,
         parentCol: string | null,
-        parentId: string | null
+        parentId: string | null,
+        tipoEntidade?: TipoEntidade
     ): Promise<ParSimilar[]> {
         // Threshold mínimo de similaridade (configurável via env)
         const threshold = env.THRESHOLD_SIMILARIDADE;
@@ -199,8 +203,33 @@ class DeteccaoService {
 
         let query: string;
 
-        if (parentCol) {
-            // Para entidades com pai (bairro→cidade, logradouro→bairro, etc.)
+        if (tipoEntidade === TipoEntidade.Condominio) {
+            // Condomínio: compara dentro do mesmo logradouro, mas retorna cidade_id como parent_id
+            // JOIN: condominio → logradouro → bairro → cidade para extrair cidade_id numérico
+            query = `
+                SELECT
+                    a.id::text AS id_a,
+                    b.id::text AS id_b,
+                    a.nome AS nome_a,
+                    b.nome AS nome_b,
+                    ci.id::text AS parent_id,
+                    similarity(lower(unaccent(a.nome)), lower(unaccent(b.nome))) AS score
+                FROM condominio a
+                JOIN logradouro la ON la.id = a.logradouro_id
+                JOIN bairro ba ON ba.id = la.bairro_id
+                JOIN cidade ci ON ci.id = ba.cidade_id,
+                condominio b
+                WHERE a.logradouro_id = b.logradouro_id
+                  AND a.id < b.id
+                  AND (a.excluido = false OR a.excluido IS NULL)
+                  AND (b.excluido = false OR b.excluido IS NULL)
+                  ${parentId ? `AND ci.id::text = $3` : ""}
+                  AND similarity(lower(unaccent(a.nome)), lower(unaccent(b.nome))) > $1
+                ORDER BY score DESC
+                LIMIT $2
+            `;
+        } else if (parentCol) {
+            // Para entidades com pai (bairro→cidade, logradouro→bairro)
             // Compara apenas registros que compartilham o mesmo pai
             query = `
                 SELECT
