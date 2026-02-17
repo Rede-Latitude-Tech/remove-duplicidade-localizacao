@@ -212,6 +212,7 @@ class DeteccaoService {
             `;
         } else {
             // Para Cidade: agrupa por estado_id (sem coluna parent genérica)
+            // Nota: tabela cidade NÃO tem coluna "excluido", então omitimos esse filtro
             query = `
                 SELECT
                     a.id::text AS id_a,
@@ -223,8 +224,6 @@ class DeteccaoService {
                 FROM ${tabela} a, ${tabela} b
                 WHERE a.estado_id = b.estado_id
                   AND a.id < b.id
-                  AND (a.excluido = false OR a.excluido IS NULL)
-                  AND (b.excluido = false OR b.excluido IS NULL)
                   ${parentId ? `AND a.estado_id::text = $3` : ""}
                   AND similarity(lower(unaccent(a.nome)), lower(unaccent(b.nome))) > $1
                 ORDER BY score DESC
