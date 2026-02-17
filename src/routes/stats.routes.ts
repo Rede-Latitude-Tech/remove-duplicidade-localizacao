@@ -91,7 +91,8 @@ export async function statsRoutes(app: FastifyInstance) {
             JOIN cidade c ON c.id = g.parent_id::int
             WHERE g.status = 1
             AND g.parent_id IS NOT NULL
-            AND g.tipo_entidade IN (2, 3, 4)
+            AND g.tipo_entidade IN (2, 3)
+            AND g.parent_id ~ '^[0-9]+$'
             GROUP BY g.parent_id, c.nome, c.estado_id
             ORDER BY COUNT(*) DESC
             LIMIT 50
@@ -124,7 +125,8 @@ export async function statsRoutes(app: FastifyInstance) {
             JOIN cidade c ON c.id = g.parent_id::int
             WHERE g.status = 1
             AND g.parent_id IS NOT NULL
-            AND g.tipo_entidade IN (2, 3, 4)
+            AND g.tipo_entidade IN (2, 3)
+            AND g.parent_id ~ '^[0-9]+$'
             GROUP BY g.parent_id, c.nome, c.estado_id
             ORDER BY c.nome
         `);

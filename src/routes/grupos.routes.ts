@@ -37,18 +37,20 @@ export async function gruposRoutes(app: FastifyInstance) {
             prisma.ms_grupo_duplicata.count({ where }),
         ]);
 
-        // Preenche parent_nome com o nome da cidade via SQL (bairros e logradouros têm parent_id = cidade_id)
+        // Preenche parent_nome com o nome da cidade via SQL (bairros e logradouros têm parent_id numérico = cidade_id)
         const parentIds = [...new Set(data.map((g) => g.parent_id).filter(Boolean))];
+        // Filtra apenas IDs numéricos (condomínios têm UUID como parent_id)
+        const parentIdsNumericos = parentIds.filter((id) => /^\d+$/.test(id!));
         let cidadeNomes: Record<string, string> = {};
-        if (parentIds.length > 0) {
+        if (parentIdsNumericos.length > 0) {
             try {
                 const cidades = await prisma.$queryRawUnsafe<Array<{ id: string; nome: string }>>(
                     `SELECT id::text, nome FROM cidade WHERE id = ANY($1::int[])`,
-                    parentIds.map((id) => parseInt(id!, 10))
+                    parentIdsNumericos.map((id) => parseInt(id!, 10))
                 );
                 cidadeNomes = Object.fromEntries(cidades.map((c) => [c.id, c.nome]));
             } catch {
-                // Ignora erro se parent_id não for int (ex: condomínios)
+                // Ignora erro inesperado
             }
         }
 
