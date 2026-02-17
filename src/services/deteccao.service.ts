@@ -15,6 +15,7 @@ import {
     type ParSimilar,
 } from "../types/index.js";
 import { normalizadorService } from "./normalizador.service.js";
+import { enriquecimentoService } from "./enriquecimento.service.js";
 
 // Tipo retornado pela query raw de similaridade pg_trgm
 interface ParSimilarRaw {
@@ -113,9 +114,12 @@ class DeteccaoService {
                 // Detecta grupos para esse tipo (sem filtro de parentId, pega todos)
                 const grupos = await this.detectarPorTipo(tipoAtual, null);
 
-                // Persiste cada grupo no banco
+                // Coleta IDs dos grupos criados para enriquecimento posterior
+                const grupoIdsCriados: string[] = [];
+
                 for (const grupo of grupos) {
-                    await prisma.ms_grupo_duplicata.create({
+                    // Persiste o grupo e captura o ID gerado
+                    const criado = await prisma.ms_grupo_duplicata.create({
                         data: {
                             tipo_entidade: grupo.tipoEntidade,
                             parent_id: grupo.parentId,
@@ -124,9 +128,10 @@ class DeteccaoService {
                             nomes_membros: grupo.nomesMembros,
                             score_medio: grupo.scoreMedio,
                             fonte: "pg_trgm",
-                            status: 1, // Pendente
+                            status: 1,
                         },
                     });
+                    grupoIdsCriados.push(criado.id);
                 }
 
                 totalGrupos += grupos.length;
@@ -138,6 +143,11 @@ class DeteccaoService {
                 console.log(
                     `[DeteccaoService] Tipo ${TIPO_ENTIDADE_TABELA[tipoAtual as TipoEntidade]}: ${grupos.length} grupos encontrados`
                 );
+
+                // Enriquece os grupos recém-criados com hierarquia e nome oficial
+                if (grupoIdsCriados.length > 0) {
+                    await enriquecimentoService.enriquecer(grupoIdsCriados);
+                }
             }
 
             // Atualiza o log de execução com resultado final
