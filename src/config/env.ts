@@ -21,6 +21,18 @@ const envSchema = z.object({
     THRESHOLD_SIMILARIDADE: z.coerce.number().default(0.4),
     THRESHOLD_LLM: z.coerce.number().default(0.8),
     LIMITE_PARES_POR_EXECUCAO: z.coerce.number().default(200),
+
+    // Google Geocoding API (fallback para nome oficial)
+    GOOGLE_GEOCODING_API_KEY: z.string().optional(),
+
+    // Enriquecimento — controle de APIs externas
+    ENRIQUECIMENTO_HABILITADO: z
+        .enum(["true", "false"])
+        .default("true")
+        .transform((v) => v === "true"),
+    VIACEP_MAX_CEPS_POR_MEMBRO: z.coerce.number().default(10),
+    VIACEP_CACHE_TTL_DIAS: z.coerce.number().default(7),
+    GOOGLE_CACHE_TTL_DIAS: z.coerce.number().default(30),
 });
 
 export type Env = z.infer<typeof envSchema>;
