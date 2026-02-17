@@ -36,13 +36,17 @@ export async function gruposRoutes(app: FastifyInstance) {
         return { data, total };
     });
 
-    // GET /grupos/:id — detalhe de um grupo com membros e impacto
+    // GET /grupos/:id — detalhe de um grupo com membros, impacto e contexto hierárquico
     app.get("/:id", async (request, reply) => {
         const { id } = request.params as { id: string };
 
+        // Busca grupo com contextos dos membros (ms_membro_contexto)
         const grupo = await prisma.ms_grupo_duplicata.findUnique({
             where: { id },
-            include: { logs: true },
+            include: {
+                logs: true,
+                contextos: true,
+            },
         });
 
         if (!grupo) {
@@ -56,7 +60,33 @@ export async function gruposRoutes(app: FastifyInstance) {
             grupo.nomes_membros
         );
 
-        return { grupo, membros };
+        // Anexa contexto hierárquico a cada membro (match por registro_id)
+        const membrosComContexto = membros.map((membro) => {
+            const ctx = grupo.contextos.find((c) => c.registro_id === membro.id);
+            return {
+                ...membro,
+                contexto: ctx
+                    ? {
+                          cidade_nome: ctx.cidade_nome,
+                          cidade_id: ctx.cidade_id,
+                          estado_sigla: ctx.estado_sigla,
+                          bairro_nome: ctx.bairro_nome,
+                          bairro_id: ctx.bairro_id,
+                          logradouro_nome: ctx.logradouro_nome,
+                          logradouro_id: ctx.logradouro_id,
+                          ceps: ctx.ceps,
+                          total_logradouros: ctx.total_logradouros,
+                          total_condominios: ctx.total_condominios,
+                          total_bairros: ctx.total_bairros,
+                      }
+                    : null,
+            };
+        });
+
+        // Remove o array de contextos cru do grupo (já está nos membros)
+        const { contextos: _, ...grupoLimpo } = grupo;
+
+        return { grupo: grupoLimpo, membros: membrosComContexto };
     });
 
     // GET /grupos/:id/impacto — contagem detalhada de impacto por membro
