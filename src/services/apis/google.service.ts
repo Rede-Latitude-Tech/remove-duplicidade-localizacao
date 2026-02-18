@@ -16,6 +16,11 @@ import { env } from "../../config/env.js";
 const GOOGLE_GEOCODING_BASE =
     "https://maps.googleapis.com/maps/api/geocode/json";
 
+// URL base da API Find Place from Text do Google Places
+// Retorna o nome público do estabelecimento (ex: "Condomínio Edifício Rio Vermelho")
+const GOOGLE_FIND_PLACE_BASE =
+    "https://maps.googleapis.com/maps/api/place/findplacefromtext/json";
+
 // ============================================================================
 // Tipos internos para a resposta da API do Google Geocoding
 // ============================================================================
@@ -50,6 +55,24 @@ interface GeocodingResponse {
     results: GeocodingResult[];
 }
 
+/**
+ * Candidato retornado pela API Find Place from Text do Google Places.
+ * O campo "name" é o nome público do estabelecimento no Google Maps.
+ */
+interface PlaceCandidate {
+    name: string;
+    formatted_address: string;
+}
+
+/**
+ * Resposta da API Find Place from Text.
+ * Retorna uma lista de candidatos encontrados para a query.
+ */
+interface FindPlaceResponse {
+    status: string;
+    candidates: PlaceCandidate[];
+}
+
 // ============================================================================
 // Tipos exportados para uso externo
 // ============================================================================
@@ -63,6 +86,7 @@ export interface GoogleEnderecoOficial {
     logradouro: string | null;
     cidade: string | null;
     estado: string | null;
+    formattedAddress: string | null; // formatted_address completo do Google
 }
 
 /**
@@ -73,6 +97,7 @@ export interface ResultadoOficial {
     nomeOficial: string;
     fonte: string;
     score: number;
+    enderecoCompleto?: string | null; // formatted_address do Google Geocoding
 }
 
 // ============================================================================
@@ -151,7 +176,7 @@ class GoogleGeocodingService {
                 return null;
             }
 
-            // Extrai os componentes estruturados do primeiro resultado
+            // Extrai os componentes estruturados do primeiro resultado (inclui formatted_address)
             const resultado = this.extrairComponentes(data.results[0]);
 
             // Calcula o TTL do cache em segundos a partir da config em dias
@@ -172,51 +197,134 @@ class GoogleGeocodingService {
     }
 
     /**
-     * Busca o nome oficial de um condominio via Google Geocoding.
+     * Busca o nome oficial de um condominio via Google Places API (Find Place from Text).
      *
-     * O Google confirma a localizacao mas nao normaliza nomes de condominios,
-     * entao o score retornado e 0.7 (menor que buscas de bairro/logradouro).
+     * Tenta cada nome de membro no Google Places para encontrar o nome público
+     * real do estabelecimento (ex: "Condomínio Edifício Rio Vermelho").
+     * Se Places não encontrar, faz fallback para Geocoding (confirmação de localização).
      *
-     * @param nomeCondominio - Nome do condominio a buscar
+     * @param nomesMembros - Nomes de todos os membros do grupo para tentar na busca
      * @param logradouro - Logradouro onde o condominio esta localizado
      * @param bairro - Bairro do condominio
      * @param cidade - Cidade do condominio
      * @param uf - Sigla do estado (ex: "SP")
-     * @returns Resultado oficial com score 0.7 ou null se nao encontrar
+     * @returns Resultado oficial com nome público do Google Places (score 0.9) ou fallback Geocoding (score 0.7)
      */
     async buscarNomeCondominio(
-        nomeCondominio: string,
+        nomesMembros: string[],
         logradouro: string,
         bairro: string,
         cidade: string,
         uf: string
     ): Promise<ResultadoOficial | null> {
-        // Monta o endereco completo para maximizar a precisao da geocodificacao
-        const enderecoCompleto = [
-            nomeCondominio,
-            logradouro,
-            bairro,
-            cidade,
-            uf,
-        ]
-            // Remove partes vazias/undefined para nao poluir a query
+        // Tenta Google Places para cada membro — para ao primeiro resultado
+        for (const nome of nomesMembros) {
+            const placesResult = await this.findPlace(nome, cidade, uf);
+            if (placesResult) {
+                console.log(
+                    `[GooglePlaces] Nome público encontrado: "${placesResult.name}" para "${nome}"`
+                );
+                return {
+                    nomeOficial: placesResult.name,
+                    fonte: "Google Places",
+                    score: 0.9, // Score alto: nome público real do Google Maps
+                    enderecoCompleto: placesResult.formatted_address,
+                };
+            }
+        }
+
+        // Fallback: Google Geocoding apenas confirma localização (não retorna nome de condomínio)
+        const primeiroNome = nomesMembros[0] ?? "";
+        const enderecoCompleto = [primeiroNome, logradouro, bairro, cidade, uf]
             .filter(Boolean)
             .join(", ");
 
-        // Faz a geocodificacao do endereco completo
         const resultado = await this.geocode(enderecoCompleto);
-
-        // Se nao encontrou resultado, retorna null
         if (!resultado) {
             return null;
         }
 
-        // Retorna com score 0.7 — Google confirma localizacao mas nao normaliza condominios
+        // Score 0.7 — Geocoding confirma localização mas não normaliza nome de condomínio
         return {
-            nomeOficial: nomeCondominio,
+            nomeOficial: primeiroNome,
             fonte: "Google Geocoding",
             score: 0.7,
+            enderecoCompleto: resultado.formattedAddress,
         };
+    }
+
+    /**
+     * Busca um estabelecimento pelo nome via Google Places API (Find Place from Text).
+     *
+     * Retorna o nome público do local no Google Maps (ex: "Condomínio Edifício Rio Vermelho")
+     * e o endereço formatado. Usa cache Redis para evitar chamadas repetidas.
+     *
+     * @param nome - Nome do condomínio a buscar
+     * @param cidade - Cidade para contexto (melhora a precisão)
+     * @param uf - Estado para contexto
+     * @returns Candidato do Places (name + formatted_address) ou null se não encontrar
+     */
+    private async findPlace(
+        nome: string,
+        cidade: string,
+        uf: string
+    ): Promise<PlaceCandidate | null> {
+        if (!this.disponivel) return null;
+
+        // Monta a query: "nome do condomínio, cidade - UF"
+        const query = [nome, cidade, uf].filter(Boolean).join(", ");
+        const cacheKey = `google:places:${this.normalizar(query)}`;
+
+        // Tenta cache primeiro
+        const cached = await cacheService.get<PlaceCandidate | "MISS">(cacheKey);
+        if (cached === "MISS") return null; // Cache negativo (busca anterior não encontrou)
+        if (cached) return cached;
+
+        try {
+            // Chama a API Find Place from Text com os campos necessários
+            const params = new URLSearchParams({
+                input: query,
+                inputtype: "textquery",
+                fields: "name,formatted_address",
+                key: env.GOOGLE_GEOCODING_API_KEY!,
+                language: "pt-BR",
+                // Restringe a busca ao Brasil para evitar resultados de outros países
+                locationbias: "rectangle:-33.75,-73.99,5.27,-34.79",
+            });
+
+            const url = `${GOOGLE_FIND_PLACE_BASE}?${params.toString()}`;
+            const response = await fetch(url);
+
+            if (!response.ok) {
+                console.warn(
+                    `[GooglePlaces] Erro HTTP ${response.status} ao buscar: "${query}"`
+                );
+                return null;
+            }
+
+            const data: FindPlaceResponse = await response.json();
+            const ttlSegundos = env.GOOGLE_CACHE_TTL_DIAS * 24 * 60 * 60;
+
+            // Se não encontrou candidatos, salva cache negativo e retorna null
+            if (data.status !== "OK" || data.candidates.length === 0) {
+                await cacheService.set(cacheKey, "MISS", ttlSegundos);
+                return null;
+            }
+
+            // Pega o primeiro candidato (mais relevante)
+            const candidato = data.candidates[0];
+
+            // Salva no cache para consultas futuras
+            await cacheService.set(cacheKey, candidato, ttlSegundos);
+
+            return candidato;
+        } catch (err) {
+            console.warn(
+                `[GooglePlaces] Falha ao buscar "${query}":`,
+                err
+            );
+            return null;
+        }
     }
 
     /**
@@ -268,6 +376,7 @@ class GoogleGeocodingService {
             nomeOficial: nomeExtraido,
             fonte: "Google Geocoding",
             score: 0.8,
+            enderecoCompleto: resultado.formattedAddress, // formatted_address do Google
         };
     }
 
@@ -318,7 +427,10 @@ class GoogleGeocodingService {
                 "administrative_area_level_1"
             ) ?? null;
 
-        return { bairro, logradouro, cidade, estado };
+        // Inclui o formatted_address completo do Google (endereco legivel)
+        const formattedAddress = result.formatted_address ?? null;
+
+        return { bairro, logradouro, cidade, estado, formattedAddress };
     }
 
     /**

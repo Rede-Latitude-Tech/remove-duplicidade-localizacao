@@ -34,13 +34,15 @@ class MergeService {
      * @param registroCanonicoId - ID do registro escolhido como canônico
      * @param nomeFinal - Nome final para o registro canônico (null para manter o original)
      * @param executadoPor - ID do usuário que executou a ação (null se automático)
+     * @param decisaoContexto - JSON com contexto da decisão humana para feedback IA (null se não informado)
      * @returns Resumo com mensagem e total de alterações realizadas
      */
     async unificar(
         grupoId: string,
         registroCanonicoId: string,
         nomeFinal: string | null,
-        executadoPor: string | null
+        executadoPor: string | null,
+        decisaoContexto: string | null = null
     ): Promise<{ mensagem: string; totalAlteracoes: number }> {
         // Busca o grupo e valida que existe
         const grupo = await prisma.ms_grupo_duplicata.findUnique({
@@ -51,10 +53,10 @@ class MergeService {
             throw new Error(`Grupo ${grupoId} não encontrado.`);
         }
 
-        // Valida que o grupo está com status Pendente (só pode unificar grupos pendentes)
-        if (grupo.status !== StatusGrupo.Pendente) {
+        // Valida que o grupo está com status Pendente ou Revertido (permite re-unificação após reversão)
+        if (grupo.status !== StatusGrupo.Pendente && grupo.status !== StatusGrupo.Revertido) {
             throw new Error(
-                `Grupo ${grupoId} não está pendente (status atual: ${grupo.status}). Apenas grupos pendentes podem ser unificados.`
+                `Grupo ${grupoId} não pode ser unificado (status atual: ${grupo.status}). Apenas grupos pendentes ou revertidos podem ser unificados.`
             );
         }
 
@@ -144,7 +146,7 @@ class MergeService {
                 );
             }
 
-            // Atualiza o grupo com status Executado e metadados da execução
+            // Atualiza o grupo com status Executado, metadados da execução e contexto da decisão
             await tx.ms_grupo_duplicata.update({
                 where: { id: grupoId },
                 data: {
@@ -154,6 +156,7 @@ class MergeService {
                     data_execucao: new Date(),
                     executado_por: executadoPor ?? undefined,
                     total_registros_afetados: totalAlteracoes,
+                    decisao_contexto: decisaoContexto ?? undefined,
                 },
             });
         }, { timeout: 30000 }); // 30s timeout para tabelas grandes
@@ -299,11 +302,13 @@ class MergeService {
      *
      * @param grupoId - ID do grupo a descartar
      * @param executadoPor - ID do usuário que descartou (null se automático)
+     * @param decisaoContexto - JSON com contexto da decisão humana para feedback IA (null se não informado)
      * @returns Resumo com mensagem de confirmação
      */
     async descartar(
         grupoId: string,
-        executadoPor: string | null
+        executadoPor: string | null,
+        decisaoContexto: string | null = null
     ): Promise<{ mensagem: string }> {
         // Busca o grupo e valida que existe
         const grupo = await prisma.ms_grupo_duplicata.findUnique({
@@ -314,12 +319,13 @@ class MergeService {
             throw new Error(`Grupo ${grupoId} não encontrado.`);
         }
 
-        // Atualiza o status do grupo para Descartado
+        // Atualiza o status do grupo para Descartado, incluindo contexto da decisão
         await prisma.ms_grupo_duplicata.update({
             where: { id: grupoId },
             data: {
                 status: StatusGrupo.Descartado,
                 executado_por: executadoPor ?? undefined,
+                decisao_contexto: decisaoContexto ?? undefined,
             },
         });
 

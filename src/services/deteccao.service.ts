@@ -293,10 +293,21 @@ class DeteccaoService {
 
         let query: string;
 
+        // Expressão SQL para normalizar nomes de condomínios antes da comparação pg_trgm
+        // Remove prefixos comuns (edificio, condominio, residencial, etc.) + caracteres especiais (|, -, /)
+        // + colapsa espaços múltiplos. Permite detectar duplicatas como "Condominio Aurum" ↔ "Edifício Aurum | Plaenge"
+        const normCondo = (alias: string) =>
+            `trim(regexp_replace(regexp_replace(regexp_replace(lower(unaccent(${alias}.nome)), '^(edificio|condominio|residencial|torre|bloco|ed|cond) ', ''), '[|()/-]+', ' ', 'g'), ' +', ' ', 'g'))`;
+
+        // Expressão SQL para normalizar nomes de bairros — remove prefixos descritivos
+        // Ex: "Jardim Aurora" → "aurora", "Parque Industrial" → "industrial"
+        const normBairro = (alias: string) =>
+            `trim(regexp_replace(lower(unaccent(${alias}.nome)), '^(setor|jardim|parque|vila|residencial|conjunto|nucleo|bairro|jd|pq|res|conj) ', ''))`;
+
         if (tipoEntidade === TipoEntidade.Condominio) {
             // Condomínio: compara dentro do mesmo logradouro, mas retorna cidade_id como parent_id
             // JOIN: condominio → logradouro → bairro → cidade para extrair cidade_id numérico
-            // pg_trgm é o filtro bruto — a validação fina é feita pelo LLM depois
+            // Usa GREATEST(raw, normalizada) para capturar duplicatas com prefixos diferentes
             query = `
                 SELECT
                     a.id::text AS id_a,
@@ -304,7 +315,10 @@ class DeteccaoService {
                     a.nome AS nome_a,
                     b.nome AS nome_b,
                     ci.id::text AS parent_id,
-                    similarity(lower(unaccent(a.nome)), lower(unaccent(b.nome))) AS score
+                    GREATEST(
+                        similarity(lower(unaccent(a.nome)), lower(unaccent(b.nome))),
+                        similarity(${normCondo("a")}, ${normCondo("b")})
+                    ) AS score
                 FROM condominio a
                 JOIN logradouro la ON la.id = a.logradouro_id
                 JOIN bairro ba ON ba.id = la.bairro_id
@@ -315,13 +329,21 @@ class DeteccaoService {
                   AND (a.excluido = false OR a.excluido IS NULL)
                   AND (b.excluido = false OR b.excluido IS NULL)
                   ${parentId ? `AND ci.id::text = $3` : ""}
-                  AND similarity(lower(unaccent(a.nome)), lower(unaccent(b.nome))) > $1
+                  AND GREATEST(
+                      similarity(lower(unaccent(a.nome)), lower(unaccent(b.nome))),
+                      similarity(${normCondo("a")}, ${normCondo("b")})
+                  ) > $1
                 ORDER BY score DESC
                 LIMIT $2
             `;
         } else if (parentCol) {
             // Para entidades com pai (bairro→cidade, logradouro→bairro)
             // Compara apenas registros que compartilham o mesmo pai
+            // Para bairros: usa GREATEST com normalização de prefixos
+            const usaNormBairro = tipoEntidade === TipoEntidade.Bairro;
+            const simExpr = usaNormBairro
+                ? `GREATEST(similarity(lower(unaccent(a.nome)), lower(unaccent(b.nome))), similarity(${normBairro("a")}, ${normBairro("b")}))`
+                : `similarity(lower(unaccent(a.nome)), lower(unaccent(b.nome)))`;
             query = `
                 SELECT
                     a.id::text AS id_a,
@@ -329,14 +351,14 @@ class DeteccaoService {
                     a.nome AS nome_a,
                     b.nome AS nome_b,
                     a.${parentCol}::text AS parent_id,
-                    similarity(lower(unaccent(a.nome)), lower(unaccent(b.nome))) AS score
+                    ${simExpr} AS score
                 FROM ${tabela} a, ${tabela} b
                 WHERE a.${parentCol} = b.${parentCol}
                   AND a.id < b.id
                   AND (a.excluido = false OR a.excluido IS NULL)
                   AND (b.excluido = false OR b.excluido IS NULL)
                   ${parentId ? `AND a.${parentCol}::text = $3` : ""}
-                  AND similarity(lower(unaccent(a.nome)), lower(unaccent(b.nome))) > $1
+                  AND ${simExpr} > $1
                 ORDER BY score DESC
                 LIMIT $2
             `;

@@ -56,10 +56,31 @@ export async function statsRoutes(app: FastifyInstance) {
             where: { revertido: false },
         });
 
+        // Conta grupos auto-aprováveis: pendentes com sugestão + nome oficial + IA confiança >= 90%
+        const candidatosAuto = await prisma.ms_grupo_duplicata.findMany({
+            where: {
+                status: StatusGrupo.Pendente,
+                canonico_sugerido_id: { not: null },
+                nome_oficial: { not: null },
+                detalhes_llm: { not: null },
+            },
+            select: { detalhes_llm: true },
+        });
+        let totalAutoAprovaveis = 0;
+        for (const g of candidatosAuto) {
+            try {
+                const llm = JSON.parse(g.detalhes_llm!);
+                if (llm.saoDuplicatas === true && typeof llm.confianca === "number" && llm.confianca >= 0.90) {
+                    totalAutoAprovaveis++;
+                }
+            } catch { /* ignora */ }
+        }
+
         return {
             totalGruposPendentes: pendentes,
             totalMergesExecutados: executados,
             totalRegistrosUnificados,
+            totalAutoAprovaveis, // Grupos seguros para auto-aprovação (IA >= 90% + nome oficial)
             porTipo: { bairros, logradouros, condominios, cidades },
             ultimaDeteccao: ultimaExecucao?.data_execucao ?? null,
         };

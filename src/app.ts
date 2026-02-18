@@ -8,6 +8,7 @@ import { gruposRoutes } from "./routes/grupos.routes.js";
 import { mergeRoutes } from "./routes/merge.routes.js";
 import { scanRoutes } from "./routes/scan.routes.js";
 import { statsRoutes } from "./routes/stats.routes.js";
+import { relatorioRoutes } from "./routes/relatorio.routes.js";
 
 // Bootstrap do servidor Fastify
 const app = Fastify({
@@ -26,6 +27,7 @@ await app.register(gruposRoutes, { prefix: "/grupos" });
 await app.register(mergeRoutes, { prefix: "/grupos" });
 await app.register(scanRoutes, { prefix: "/scan" });
 await app.register(statsRoutes, { prefix: "/stats" });
+await app.register(relatorioRoutes, { prefix: "/relatorio" });
 
 // Graceful shutdown — fecha Prisma ao parar o servidor
 app.addHook("onClose", async () => {

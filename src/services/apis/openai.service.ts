@@ -164,6 +164,8 @@ ${listaMembros}
 ATENÇÃO:
 - "${tipoEntidade}s" com sufixos numéricos diferentes (I, II, III, 1, 2, 3) são DIFERENTES (ex: "Parque Industrial I" ≠ "Parque Industrial II")
 - "${tipoEntidade}s" com complementos como "Norte", "Sul", "Leste", "Oeste" são DIFERENTES
+- CIDADES com complementos geográficos são municípios DISTINTOS (ex: "São Geraldo" ≠ "São Geraldo do Baixio", "Bom Jesus" ≠ "Bom Jesus do Itabapoana", "Santa Rita" ≠ "Santa Rita do Sapucaí"). Cada código IBGE = município separado.
+- BAIRROS com complementos de setor são DIFERENTES (ex: "Setor Marista" ≠ "Setor Marista Sul")
 - Variações de grafia do MESMO local são duplicatas (ex: "Condomínio Reserva Rio Cuiabá" = "Reserva Rio Cuiabá")
 - Abreviações são duplicatas (ex: "Ed. Aurora" = "Edifício Aurora")
 - Prefixos descritivos podem variar (ex: "Condomínio X" = "Residencial X" = "X" se são o mesmo lugar)

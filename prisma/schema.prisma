@@ -24,14 +24,16 @@ model ms_grupo_duplicata {
   detalhes_llm            String?   @db.Text               // resposta raw do LLM para auditoria
   status                  Int       @db.SmallInt @default(1) // 1=Pendente, 2=Executado, 3=Descartado, 4=Revertido
   total_registros_afetados Int      @default(0)            // total de FKs que serão atualizadas
-  executado_por           String?   @db.Uuid
+  executado_por           String?   @db.VarChar(100)       // UUID do usuário ou string descritiva ("auto-aprovacao")
   data_criacao            DateTime  @default(now())
   data_execucao           DateTime?
   data_reversao           DateTime?
 
   nome_oficial            String?   @db.VarChar(250)       // nome oficial da API externa
   fonte_oficial           String?   @db.VarChar(50)        // "IBGE", "ViaCEP", "Google"
+  endereco_google         String?   @db.VarChar(500)       // formatted_address retornado pelo Google Geocoding
   canonico_sugerido_id    String?   @db.VarChar(50)        // ID do membro sugerido automaticamente
+  decisao_contexto        String?   @db.Text               // JSON: contexto da decisão humana para feedback IA
 
   logs ms_merge_log[]
   contextos ms_membro_contexto[]

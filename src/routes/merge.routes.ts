@@ -5,13 +5,15 @@ import { prisma } from "../config/database.js";
 // Rotas de unificação (merge), reversão e descarte de grupos
 export async function mergeRoutes(app: FastifyInstance) {
     // PUT /grupos/:id/unificar — executa merge transacional
+    // Aceita decisaoContexto no body para registrar contexto da decisão humana
     app.put("/:id/unificar", async (request, reply) => {
         const { id } = request.params as { id: string };
-        const { registroCanonico, nomeCanonicoFinal, executadoPor } =
+        const { registroCanonico, nomeCanonicoFinal, executadoPor, decisaoContexto } =
             request.body as {
                 registroCanonico: string;
                 nomeCanonicoFinal?: string;
                 executadoPor?: string;
+                decisaoContexto?: string; // JSON stringificado do contexto da decisão
             };
 
         if (!registroCanonico) {
@@ -24,7 +26,8 @@ export async function mergeRoutes(app: FastifyInstance) {
             id,
             registroCanonico,
             nomeCanonicoFinal ?? null,
-            executadoPor ?? null
+            executadoPor ?? null,
+            decisaoContexto ?? null
         );
 
         return resultado;
@@ -44,6 +47,7 @@ export async function mergeRoutes(app: FastifyInstance) {
 
     // PUT /grupos/:id/aprovar-sugestao — aprova a sugestão automática do enriquecimento
     // Usa o canonico_sugerido_id e nome_oficial para executar merge automaticamente
+    // Gera decisaoContexto automaticamente com tipo "unificacao_ia_aprovada_auto"
     app.put("/:id/aprovar-sugestao", async (request, reply) => {
         const { id } = request.params as { id: string };
 
@@ -60,12 +64,34 @@ export async function mergeRoutes(app: FastifyInstance) {
             return reply.status(400).send({ erro: "Grupo não tem sugestão automática" });
         }
 
+        // Gera contexto da decisão automaticamente para aprovação via sugestão
+        let llmConfianca: number | null = null;
+        let llmNomeSugerido: string | null = null;
+        try {
+            if (grupo.detalhes_llm) {
+                const llm = JSON.parse(grupo.detalhes_llm);
+                llmConfianca = llm.confianca ?? null;
+                llmNomeSugerido = llm.nomeCanonico ?? null;
+            }
+        } catch { /* detalhes_llm inválido, ignora */ }
+
+        const decisaoContexto = JSON.stringify({
+            tipo: "unificacao_ia_aprovada_auto",
+            iaDisponivel: !!grupo.detalhes_llm,
+            iaConcordou: true,
+            iaConfianca: llmConfianca,
+            iaNomeSugerido: llmNomeSugerido,
+            nomeEscolhido: grupo.nome_oficial ?? llmNomeSugerido,
+            nomeAlteradoPeloUsuario: false,
+        });
+
         // Executa merge usando a sugestão: canônico sugerido + nome oficial
         const resultado = await mergeService.unificar(
             id,
             grupo.canonico_sugerido_id,
             grupo.nome_oficial ?? null,
-            "auto-aprovacao"
+            "auto-aprovacao",
+            decisaoContexto
         );
 
         return resultado;
@@ -96,11 +122,33 @@ export async function mergeRoutes(app: FastifyInstance) {
                     continue;
                 }
 
+                // Gera contexto da decisão para cada grupo aprovado em batch
+                let llmConfianca: number | null = null;
+                let llmNomeSugerido: string | null = null;
+                try {
+                    if (grupo.detalhes_llm) {
+                        const llm = JSON.parse(grupo.detalhes_llm);
+                        llmConfianca = llm.confianca ?? null;
+                        llmNomeSugerido = llm.nomeCanonico ?? null;
+                    }
+                } catch { /* ignora */ }
+
+                const decisaoCtx = JSON.stringify({
+                    tipo: "unificacao_ia_aprovada_batch",
+                    iaDisponivel: !!grupo.detalhes_llm,
+                    iaConcordou: true,
+                    iaConfianca: llmConfianca,
+                    iaNomeSugerido: llmNomeSugerido,
+                    nomeEscolhido: grupo.nome_oficial ?? llmNomeSugerido,
+                    nomeAlteradoPeloUsuario: false,
+                });
+
                 await mergeService.unificar(
                     grupoId,
                     grupo.canonico_sugerido_id,
                     grupo.nome_oficial ?? null,
-                    "auto-aprovacao-batch"
+                    "auto-aprovacao-batch",
+                    decisaoCtx
                 );
 
                 resultados.push({ id: grupoId, sucesso: true });
@@ -115,13 +163,18 @@ export async function mergeRoutes(app: FastifyInstance) {
     });
 
     // PUT /grupos/:id/descartar — marca grupo como "não é duplicata"
+    // Aceita decisaoContexto no body para registrar contexto da decisão humana
     app.put("/:id/descartar", async (request, reply) => {
         const { id } = request.params as { id: string };
-        const { executadoPor } = request.body as { executadoPor?: string };
+        const { executadoPor, decisaoContexto } = request.body as {
+            executadoPor?: string;
+            decisaoContexto?: string; // JSON stringificado do contexto da decisão
+        };
 
         const resultado = await mergeService.descartar(
             id,
-            executadoPor ?? null
+            executadoPor ?? null,
+            decisaoContexto ?? null
         );
         return resultado;
     });

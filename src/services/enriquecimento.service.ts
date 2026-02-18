@@ -131,12 +131,13 @@ class EnriquecimentoService {
             });
         }
 
-        // 6. Atualiza o grupo com nome oficial e sugestao de canonico
+        // 6. Atualiza o grupo com nome oficial, endereco Google e sugestao de canonico
         await prisma.ms_grupo_duplicata.update({
             where: { id: grupoId },
             data: {
                 nome_oficial: nomeOficial?.nomeOficial ?? null,
                 fonte_oficial: nomeOficial?.fonte ?? null,
+                endereco_google: nomeOficial?.enderecoCompleto ?? null,
                 canonico_sugerido_id: canonicoSugeridoId,
             },
         });
@@ -428,8 +429,9 @@ class EnriquecimentoService {
                         contextos
                     );
                 case TipoEntidade.Condominio:
+                    // Passa todos os nomes dos membros para tentar cada um no Google Places
                     return await this.buscarNomeOficialCondominio(
-                        primeiroNome,
+                        nomesMembros,
                         primeiroCtx
                     );
                 default:
@@ -525,14 +527,15 @@ class EnriquecimentoService {
     }
 
     /**
-     * Condominio: apenas Google Geocoding (nao ha API publica para condominios).
+     * Condominio: Google Places API (Find Place from Text) para obter nome público real.
+     * Passa todos os nomes dos membros — tenta cada um até encontrar no Google Places.
      */
     private async buscarNomeOficialCondominio(
-        nome: string,
+        nomesMembros: string[],
         ctx: ContextoMembro | null
     ): Promise<ResultadoOficial | null> {
         return googleGeocodingService.buscarNomeCondominio(
-            nome,
+            nomesMembros,
             ctx?.logradouroNome ?? "",
             ctx?.bairroNome ?? "",
             ctx?.cidadeNome ?? "",
