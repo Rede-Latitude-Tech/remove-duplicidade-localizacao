@@ -79,6 +79,7 @@ export const FK_MAP: Record<number, FkRef[]> = {
     [TipoEntidade.Cidade]: [
         { tabela: "bairro", coluna: "cidade_id", tipoId: "int" },
         { tabela: "empresa", coluna: "cidade_id", tipoId: "int" },
-        { tabela: "pessoa_fisica", coluna: "naturalidade_id", tipoId: "int" },
+        // pessoa_fisica não tem coluna "id" — PK é "pessoa_id" (FK para pessoa)
+        { tabela: "pessoa_fisica", coluna: "naturalidade_id", tipoId: "int", pkColuna: "pessoa_id" },
     ],
 };
