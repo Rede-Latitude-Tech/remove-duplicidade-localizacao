@@ -169,6 +169,7 @@ ATENÇÃO:
 - Variações de grafia do MESMO local são duplicatas (ex: "Condomínio Reserva Rio Cuiabá" = "Reserva Rio Cuiabá")
 - Abreviações são duplicatas (ex: "Ed. Aurora" = "Edifício Aurora")
 - Prefixos descritivos podem variar (ex: "Condomínio X" = "Residencial X" = "X" se são o mesmo lugar)
+- Se um membro aparece sem sufixo numérico e outro com (ex: "Belvedere" vs "Belvedere 1"), trate como potencial duplicata — provavelmente é o mesmo local cadastrado de formas diferentes. Use o endereço e contexto para confirmar.
 
 Responda em JSON com este formato exato:
 {
@@ -264,6 +265,7 @@ REGRAS:
 - Complementos Norte/Sul/Leste/Oeste = locais DIFERENTES
 - Variações de grafia do MESMO local = duplicatas (ex: "Condomínio X" = "Residencial X" = "X")
 - Abreviações = duplicatas (ex: "Ed. Aurora" = "Edifício Aurora")
+- Membro sem sufixo numérico vs com sufixo (ex: "Belvedere" vs "Belvedere 1") = potencial duplicata, considere como mesmo local
 
 ${gruposTexto}
 

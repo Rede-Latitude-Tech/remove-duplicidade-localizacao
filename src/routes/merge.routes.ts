@@ -162,6 +162,52 @@ export async function mergeRoutes(app: FastifyInstance) {
         return { aprovados, erros, total: grupoIds.length, resultados };
     });
 
+    // POST /grupos/reverter-todos — reverte TODAS as unificações executadas
+    // Itera por todos os grupos com status Executado e chama mergeService.reverter() para cada um
+    // Usado para desfazer todo o procedimento e poder retestar do zero
+    app.post("/reverter-todos", async (request, reply) => {
+        // Busca todos os grupos com status Executado
+        const gruposExecutados = await prisma.ms_grupo_duplicata.findMany({
+            where: { status: 2 }, // StatusGrupo.Executado
+            select: { id: true },
+            orderBy: { data_execucao: "desc" }, // Reverte do mais recente para o mais antigo
+        });
+
+        if (gruposExecutados.length === 0) {
+            return { mensagem: "Nenhum grupo executado para reverter.", revertidos: 0, erros: 0, total: 0 };
+        }
+
+        let revertidos = 0;
+        let erros = 0;
+        const errosDetalhe: Array<{ id: string; erro: string }> = [];
+
+        // Reverte cada grupo individualmente usando a lógica existente
+        for (const grupo of gruposExecutados) {
+            try {
+                await mergeService.reverter(grupo.id, "reversao-total");
+                revertidos++;
+                // Log de progresso a cada 50 grupos
+                if (revertidos % 50 === 0) {
+                    console.log(`[reverter-todos] Progresso: ${revertidos}/${gruposExecutados.length} revertidos`);
+                }
+            } catch (err) {
+                erros++;
+                errosDetalhe.push({ id: grupo.id, erro: String(err) });
+                console.error(`[reverter-todos] Erro ao reverter grupo ${grupo.id}:`, err);
+            }
+        }
+
+        console.log(`[reverter-todos] Concluído: ${revertidos} revertidos, ${erros} erros de ${gruposExecutados.length} total`);
+
+        return {
+            mensagem: `Reversão total concluída. ${revertidos} grupo(s) revertido(s), ${erros} erro(s).`,
+            revertidos,
+            erros,
+            total: gruposExecutados.length,
+            errosDetalhe: errosDetalhe.length > 0 ? errosDetalhe : undefined,
+        };
+    });
+
     // PUT /grupos/:id/descartar — marca grupo como "não é duplicata"
     // Aceita decisaoContexto no body para registrar contexto da decisão humana
     app.put("/:id/descartar", async (request, reply) => {

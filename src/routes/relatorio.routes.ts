@@ -112,11 +112,12 @@ export async function relatorioRoutes(app: FastifyInstance) {
     // GET /relatorio/grupos-executados — lista paginada de grupos executados
     // Suporta filtros por tipo e empresaId, com contagem de imóveis afetados por grupo
     app.get("/grupos-executados", async (request) => {
-        const { pagina, tamanhoPagina, tipo, empresaId } = request.query as {
+        const { pagina, tamanhoPagina, tipo, empresaId, busca } = request.query as {
             pagina?: string;
             tamanhoPagina?: string;
             tipo?: string;       // Filtro por tipo_entidade (1=Cidade, 2=Bairro, 3=Logradouro, 4=Condominio)
             empresaId?: string;  // Filtro por empresa (via merge_log → imovel)
+            busca?: string;      // Busca por nome (ignora acentos e case)
         };
 
         const page = parseInt(pagina ?? "1");
@@ -132,6 +133,13 @@ export async function relatorioRoutes(app: FastifyInstance) {
         if (tipo) {
             conditions.push(`g.tipo_entidade = $${paramIndex}`);
             params.push(parseInt(tipo));
+            paramIndex++;
+        }
+
+        // Filtro por busca de nome — ignora acentos e case usando unaccent + ILIKE
+        if (busca && busca.trim()) {
+            conditions.push(`unaccent(COALESCE(g.nome_canonico, g.nome_normalizado)) ILIKE '%' || unaccent($${paramIndex}) || '%'`);
+            params.push(busca.trim());
             paramIndex++;
         }
 
