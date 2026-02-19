@@ -114,6 +114,20 @@ class DeteccaoService {
                     `[DeteccaoService] Processando tipo ${TIPO_ENTIDADE_TABELA[tipoAtual as TipoEntidade]}...`
                 );
 
+                // Limpa grupos Pendentes antes de re-analisar com novos critérios
+                // Descartados (3) são preservados — nunca re-analisados
+                const gruposLimpos = await prisma.ms_grupo_duplicata.deleteMany({
+                    where: {
+                        tipo_entidade: tipoAtual,
+                        status: 1, // Apenas Pendente
+                    },
+                });
+                if (gruposLimpos.count > 0) {
+                    console.log(
+                        `[DeteccaoService] Removidos ${gruposLimpos.count} grupos Pendentes do tipo ${TIPO_ENTIDADE_TABELA[tipoAtual as TipoEntidade]}`
+                    );
+                }
+
                 // Detecta grupos para esse tipo (sem filtro de parentId, pega todos)
                 const grupos = await this.detectarPorTipo(tipoAtual, null);
 
@@ -413,11 +427,12 @@ class DeteccaoService {
         pares: ParSimilar[],
         tipo: number
     ): Promise<ParSimilar[]> {
-        // Busca todos os grupos existentes (não descartados) do mesmo tipo
+        // Busca grupos existentes que bloqueiam re-análise: Pendente, Executado e Descartado
+        // Descartados (3) são preservados e seus IDs nunca re-analisados
         const gruposExistentes = await prisma.ms_grupo_duplicata.findMany({
             where: {
                 tipo_entidade: tipo,
-                status: { in: [1, 2] }, // Pendente ou Executado
+                status: { in: [1, 2, 3] }, // Pendente, Executado ou Descartado
             },
             select: {
                 registro_ids: true,

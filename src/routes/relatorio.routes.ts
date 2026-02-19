@@ -136,9 +136,15 @@ export async function relatorioRoutes(app: FastifyInstance) {
             paramIndex++;
         }
 
-        // Filtro por busca de nome — ignora acentos e case usando unaccent + ILIKE
+        // Filtro por busca de nome — busca no nome canônico, normalizado E nos nomes dos membros antes da unificação
         if (busca && busca.trim()) {
-            conditions.push(`unaccent(COALESCE(g.nome_canonico, g.nome_normalizado)) ILIKE '%' || unaccent($${paramIndex}) || '%'`);
+            conditions.push(`(
+                unaccent(COALESCE(g.nome_canonico, g.nome_normalizado)) ILIKE '%' || unaccent($${paramIndex}) || '%'
+                OR EXISTS (
+                    SELECT 1 FROM unnest(g.nomes_membros) AS m
+                    WHERE unaccent(m) ILIKE '%' || unaccent($${paramIndex}) || '%'
+                )
+            )`);
             params.push(busca.trim());
             paramIndex++;
         }
