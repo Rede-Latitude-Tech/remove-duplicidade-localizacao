@@ -3,9 +3,9 @@ set -e
 
 echo "=== remove-duplicidade-localizacao ==="
 
-# 1. Rodar migrations do Prisma
-echo ">> Rodando Prisma migrations..."
-npx prisma migrate deploy || echo ">> WARN: migrations falharam (pode ser primeira execução)"
+# 1. Sincronizar schema do Prisma (cria/atualiza tabelas ms_*)
+echo ">> Sincronizando schema Prisma..."
+npx prisma db push --skip-generate --accept-data-loss 2>&1 || echo ">> WARN: prisma db push falhou"
 
 # 2. Iniciar aplicação
 echo ">> Iniciando servidor na porta ${PORT:-3003}..."
