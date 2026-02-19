@@ -166,7 +166,7 @@ class GoogleGeocodingService {
             }
 
             // Parse da resposta JSON
-            const data: GeocodingResponse = await response.json();
+            const data = (await response.json()) as GeocodingResponse;
 
             // Verifica se a API retornou resultados validos
             if (data.status !== "OK" || data.results.length === 0) {
@@ -302,7 +302,7 @@ class GoogleGeocodingService {
                 return null;
             }
 
-            const data: FindPlaceResponse = await response.json();
+            const data = (await response.json()) as FindPlaceResponse;
             const ttlSegundos = env.GOOGLE_CACHE_TTL_DIAS * 24 * 60 * 60;
 
             // Se não encontrou candidatos, salva cache negativo e retorna null

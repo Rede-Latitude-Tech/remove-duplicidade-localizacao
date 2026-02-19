@@ -36,6 +36,7 @@ export interface ResultadoOficial {
     nomeOficial: string;
     fonte: string;
     score: number;
+    enderecoCompleto?: string | null;
 }
 
 class IbgeService {
@@ -134,8 +135,7 @@ class IbgeService {
 
             // Parse da resposta — a API retorna objetos com muitos campos,
             // mas só precisamos de id e nome
-            const dados: Array<{ id: number; nome: string }> =
-                await response.json();
+            const dados = (await response.json()) as Array<{ id: number; nome: string }>;
 
             // Mapeia para a estrutura simplificada que usamos internamente
             const municipios: MunicipioIBGE[] = dados.map((m) => ({

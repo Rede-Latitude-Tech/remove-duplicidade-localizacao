@@ -112,7 +112,7 @@ class OpenAIValidationService {
                 return null;
             }
 
-            const data: OpenAIResponse = await response.json();
+            const data = (await response.json()) as OpenAIResponse;
             const content = data.choices[0]?.message?.content;
 
             if (!content) {
@@ -308,7 +308,7 @@ Responda em JSON com este formato exato:
                 return resultados;
             }
 
-            const data: OpenAIResponse = await response.json();
+            const data = (await response.json()) as OpenAIResponse;
             const content = data.choices[0]?.message?.content;
             if (!content) return resultados;
 

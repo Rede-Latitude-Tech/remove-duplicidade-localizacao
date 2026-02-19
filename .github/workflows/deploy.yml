@@ -1,0 +1,13 @@
+name: Deploy to EasyPanel
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger EasyPanel deploy
+        run: |
+          curl -sf --max-time 600 "${{ secrets.EASYPANEL_DEPLOY_URL }}" || echo "Deploy triggered"

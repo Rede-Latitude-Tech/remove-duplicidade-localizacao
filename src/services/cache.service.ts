@@ -8,9 +8,11 @@
 import Redis from "ioredis";
 import { env } from "../config/env.js";
 
+type RedisClient = Redis.default;
+
 class CacheService {
     // Conexão Redis — pode ser null se a conexão falhar
-    private redis: Redis | null = null;
+    private redis: RedisClient | null = null;
 
     constructor() {
         this.inicializarConexao();
@@ -23,13 +25,13 @@ class CacheService {
      */
     private inicializarConexao(): void {
         try {
-            this.redis = new Redis(env.REDIS_URL, {
+            this.redis = new Redis.default(env.REDIS_URL, {
                 // Limita tentativas de reconexão para não bloquear a aplicação
                 maxRetriesPerRequest: 3,
                 // Timeout de conexão de 5 segundos
                 connectTimeout: 5000,
                 // Desativa reconexão automática infinita
-                retryStrategy(times) {
+                retryStrategy(times: number) {
                     // Para de tentar após 5 tentativas (backoff exponencial limitado)
                     if (times > 5) {
                         console.warn(
@@ -47,7 +49,7 @@ class CacheService {
                 console.log("[CacheService] Conectado ao Redis");
             });
 
-            this.redis.on("error", (err) => {
+            this.redis.on("error", (err: Error) => {
                 console.warn(
                     "[CacheService] Erro na conexão Redis:",
                     err.message
