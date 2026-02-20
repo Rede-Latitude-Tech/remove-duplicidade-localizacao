@@ -8,11 +8,15 @@
 import Redis from "ioredis";
 import { env } from "../config/env.js";
 
-type RedisClient = Redis.default;
+// ioredis exporta a classe como default em CJS.
+// Em ESM (NodeNext), pode vir como { default: RedisClass } ou diretamente.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const RedisConstructor = ((Redis as any).default ?? Redis) as typeof Redis;
 
 class CacheService {
     // Conexão Redis — pode ser null se a conexão falhar
-    private redis: RedisClient | null = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    private redis: any = null;
 
     constructor() {
         this.inicializarConexao();
@@ -25,7 +29,7 @@ class CacheService {
      */
     private inicializarConexao(): void {
         try {
-            this.redis = new Redis.default(env.REDIS_URL, {
+            this.redis = new (RedisConstructor as any)(env.REDIS_URL, {
                 // Limita tentativas de reconexão para não bloquear a aplicação
                 maxRetriesPerRequest: 3,
                 // Timeout de conexão de 5 segundos
