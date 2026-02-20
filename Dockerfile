@@ -39,6 +39,9 @@ COPY --from=builder /app/dist ./dist
 # Schema do Prisma (necessário para migrate deploy)
 COPY prisma ./prisma
 
+# Diagnóstico (fallback se o app crashar)
+COPY diagnostic.cjs ./diagnostic.cjs
+
 # Entrypoint
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
