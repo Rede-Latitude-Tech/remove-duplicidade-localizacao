@@ -107,13 +107,13 @@ export async function statsRoutes(app: FastifyInstance) {
                 COUNT(*) as total_grupos,
                 COUNT(*) FILTER (WHERE g.tipo_entidade = 2) as total_bairros,
                 COUNT(*) FILTER (WHERE g.tipo_entidade = 3) as total_logradouros,
-                COUNT(*) FILTER (WHERE g.tipo_entidade = 4) as total_condominios
+                0::bigint as total_condominios
             FROM ms_grupo_duplicata g
             JOIN cidade c ON c.id = g.parent_id::int
             WHERE g.status = 1
             AND g.parent_id IS NOT NULL
-            AND g.tipo_entidade IN (2, 3, 4)
-            AND g.parent_id ~ '^[0-9]+$'
+            AND g.tipo_entidade IN (2, 3)
+            AND g.parent_id ~ '^[0-9]{1,9}$'
             GROUP BY g.parent_id, c.nome, c.estado_id
             ORDER BY COUNT(*) DESC
             LIMIT 50
@@ -146,8 +146,8 @@ export async function statsRoutes(app: FastifyInstance) {
             JOIN cidade c ON c.id = g.parent_id::int
             WHERE g.status = 1
             AND g.parent_id IS NOT NULL
-            AND g.tipo_entidade IN (2, 3, 4)
-            AND g.parent_id ~ '^[0-9]+$'
+            AND g.tipo_entidade IN (2, 3)
+            AND g.parent_id ~ '^[0-9]{1,9}$'
             GROUP BY g.parent_id, c.nome, c.estado_id
             ORDER BY c.nome
         `);
