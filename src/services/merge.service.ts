@@ -18,6 +18,10 @@ import {
     TIPO_ENTIDADE_TABELA,
 } from "../types/index.js";
 
+// Entidades que possuem a coluna "excluido" para soft-delete.
+// Cidade NÃO possui — após redirecionar todas as FKs, o registro fica órfão mas inofensivo.
+const ENTIDADES_COM_SOFT_DELETE = new Set(["bairro", "logradouro", "condominio"]);
+
 class MergeService {
     /**
      * Unifica um grupo de duplicatas, redirecionando todas as FKs para o registro canônico.
@@ -130,11 +134,14 @@ class MergeService {
                     }
                 }
 
-                // Soft-delete do membro eliminado (marca como excluído, não apaga fisicamente)
-                await tx.$queryRawUnsafe(
-                    `UPDATE ${entityTable} SET excluido = true WHERE id = $1${fks[0]?.tipoId === "int" ? "::int" : "::uuid"}`,
-                    membroId
-                );
+                // Soft-delete do membro eliminado (se a tabela suporta).
+                // Cidade não tem coluna "excluido" — o registro fica órfão após redirecionar FKs.
+                if (ENTIDADES_COM_SOFT_DELETE.has(entityTable)) {
+                    await tx.$queryRawUnsafe(
+                        `UPDATE ${entityTable} SET excluido = true WHERE id = $1${fks[0]?.tipoId === "int" ? "::int" : "::uuid"}`,
+                        membroId
+                    );
+                }
             }
 
             // Se um nome final foi informado, atualiza o nome do registro canônico
@@ -258,14 +265,16 @@ class MergeService {
                 );
             }
 
-            // Reativa os membros eliminados (remove soft-delete)
-            for (const membroId of membrosEliminados) {
-                const castSuffix =
-                    fks[0]?.tipoId === "int" ? "::int" : "::uuid";
-                await tx.$queryRawUnsafe(
-                    `UPDATE ${entityTable} SET excluido = false WHERE id = $1${castSuffix}`,
-                    membroId
-                );
+            // Reativa os membros eliminados (remove soft-delete) — apenas para tabelas que suportam
+            if (ENTIDADES_COM_SOFT_DELETE.has(entityTable)) {
+                for (const membroId of membrosEliminados) {
+                    const castSuffix =
+                        fks[0]?.tipoId === "int" ? "::int" : "::uuid";
+                    await tx.$queryRawUnsafe(
+                        `UPDATE ${entityTable} SET excluido = false WHERE id = $1${castSuffix}`,
+                        membroId
+                    );
+                }
             }
 
             // Marca todos os logs como revertidos com timestamp
