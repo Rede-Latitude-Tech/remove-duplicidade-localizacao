@@ -318,10 +318,23 @@ class DeteccaoService {
         const normBairro = (alias: string) =>
             `trim(regexp_replace(lower(unaccent(${alias}.nome)), '^(setor|jardim|parque|vila|residencial|conjunto|nucleo|bairro|jd|pq|res|conj) ', ''))`;
 
+        // Normalização extra: converte numerais romanos/escritos para arábicos
+        // Permite detectar "Belvedere I" = "Belvedere 1" = "Belvedere um"
+        const normNumeral = (expr: string) =>
+            `regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(
+                ${expr},
+                '\\y(i)\\y', '1', 'gi'),
+                '\\y(ii)\\y', '2', 'gi'),
+                '\\y(iii)\\y', '3', 'gi'),
+                '\\y(iv)\\y', '4', 'gi'),
+                '\\y(v)\\y', '5', 'gi'),
+                '\\y(um)\\y', '1', 'gi'),
+                '\\y(dois)\\y', '2', 'gi')`;
+
         if (tipoEntidade === TipoEntidade.Condominio) {
-            // Condomínio: compara dentro do mesmo logradouro, mas retorna cidade_id como parent_id
+            // Condomínio: compara dentro do mesmo BAIRRO (mais abrangente que logradouro)
             // JOIN: condominio → logradouro → bairro → cidade para extrair cidade_id numérico
-            // Usa GREATEST(raw, normalizada) para capturar duplicatas com prefixos diferentes
+            // Usa GREATEST(raw, normalizada, normalizada+numeral) para capturar duplicatas
             query = `
                 SELECT
                     a.id::text AS id_a,
@@ -331,21 +344,24 @@ class DeteccaoService {
                     ci.id::text AS parent_id,
                     GREATEST(
                         similarity(lower(unaccent(a.nome)), lower(unaccent(b.nome))),
-                        similarity(${normCondo("a")}, ${normCondo("b")})
+                        similarity(${normCondo("a")}, ${normCondo("b")}),
+                        similarity(${normNumeral(normCondo("a"))}, ${normNumeral(normCondo("b"))})
                     ) AS score
                 FROM condominio a
                 JOIN logradouro la ON la.id = a.logradouro_id
                 JOIN bairro ba ON ba.id = la.bairro_id
                 JOIN cidade ci ON ci.id = ba.cidade_id,
                 condominio b
-                WHERE a.logradouro_id = b.logradouro_id
+                JOIN logradouro lb ON lb.id = b.logradouro_id
+                WHERE ba.id = lb.bairro_id
                   AND a.id < b.id
                   AND (a.excluido = false OR a.excluido IS NULL)
                   AND (b.excluido = false OR b.excluido IS NULL)
                   ${parentId ? `AND ci.id::text = $3` : ""}
                   AND GREATEST(
                       similarity(lower(unaccent(a.nome)), lower(unaccent(b.nome))),
-                      similarity(${normCondo("a")}, ${normCondo("b")})
+                      similarity(${normCondo("a")}, ${normCondo("b")}),
+                      similarity(${normNumeral(normCondo("a"))}, ${normNumeral(normCondo("b"))})
                   ) > $1
                 ORDER BY score DESC
                 LIMIT $2

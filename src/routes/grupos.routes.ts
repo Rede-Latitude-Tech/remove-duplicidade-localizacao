@@ -109,7 +109,10 @@ export async function gruposRoutes(app: FastifyInstance) {
     // GET /grupos/auto-aprovaveis — retorna grupos seguros para auto-aprovação
     // Critérios: status Pendente, tem canonico_sugerido_id, tem nome_oficial,
     // IA confirmou duplicatas (saoDuplicatas=true) com confiança >= 90%
-    app.get("/auto-aprovaveis", async () => {
+    // Query param ?detalhes=true retorna dados completos para visualização
+    app.get("/auto-aprovaveis", async (request) => {
+        const { detalhes } = request.query as { detalhes?: string };
+
         // Busca todos os pendentes com sugestão e nome oficial
         const candidatos = await prisma.ms_grupo_duplicata.findMany({
             where: {
@@ -118,23 +121,51 @@ export async function gruposRoutes(app: FastifyInstance) {
                 nome_oficial: { not: null },
                 detalhes_llm: { not: null },
             },
-            select: { id: true, detalhes_llm: true },
+            select: {
+                id: true,
+                tipo_entidade: true,
+                nomes_membros: true,
+                nome_oficial: true,
+                canonico_sugerido_id: true,
+                detalhes_llm: true,
+                parent_id: true,
+            },
         });
 
         // Filtra em memória: parseia detalhes_llm e verifica confiança >= 0.90 + saoDuplicatas
-        const idsAutoAprovaveis: string[] = [];
+        const autoAprovaveis: Array<{
+            id: string;
+            tipoEntidade: number;
+            nomesMembros: string[];
+            nomeOficial: string;
+            confianca: number;
+        }> = [];
+        const ids: string[] = [];
+
         for (const grupo of candidatos) {
             try {
                 const llm = JSON.parse(grupo.detalhes_llm!);
                 if (llm.saoDuplicatas === true && typeof llm.confianca === "number" && llm.confianca >= 0.90) {
-                    idsAutoAprovaveis.push(grupo.id);
+                    ids.push(grupo.id);
+                    if (detalhes === "true") {
+                        autoAprovaveis.push({
+                            id: grupo.id,
+                            tipoEntidade: grupo.tipo_entidade,
+                            nomesMembros: grupo.nomes_membros as string[],
+                            nomeOficial: grupo.nome_oficial!,
+                            confianca: llm.confianca,
+                        });
+                    }
                 }
             } catch {
                 // detalhes_llm inválido, ignora
             }
         }
 
-        return { total: idsAutoAprovaveis.length, ids: idsAutoAprovaveis };
+        if (detalhes === "true") {
+            return { total: autoAprovaveis.length, ids, data: autoAprovaveis };
+        }
+        return { total: ids.length, ids };
     });
 
     // GET /grupos/:id — detalhe de um grupo com membros, impacto e contexto hierárquico

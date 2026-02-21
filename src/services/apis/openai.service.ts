@@ -261,7 +261,8 @@ Se apenas ALGUNS membros são duplicatas entre si, retorne sao_duplicatas=true c
             const prompt = `Analise os seguintes grupos de nomes de ${tipoEntidade}s. Para CADA grupo, determine se os membros referem ao MESMO local físico.
 
 REGRAS:
-- Sufixos numéricos diferentes (I, II, III, 1, 2, 3) = locais DIFERENTES
+- Mesmo nome com formatos numéricos diferentes (I=1=um, II=2=dois, III=3=tres) = DUPLICATAS (ex: "Belvedere 1" = "Belvedere I" = "Belvedere um")
+- Sufixos numéricos REALMENTE diferentes (1 vs 2, I vs III) = locais DIFERENTES
 - Complementos Norte/Sul/Leste/Oeste = locais DIFERENTES
 - Variações de grafia do MESMO local = duplicatas (ex: "Condomínio X" = "Residencial X" = "X")
 - Abreviações = duplicatas (ex: "Ed. Aurora" = "Edifício Aurora")
