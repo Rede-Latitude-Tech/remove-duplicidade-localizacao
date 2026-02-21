@@ -262,11 +262,11 @@ Se apenas ALGUNS membros são duplicatas entre si, retorne sao_duplicatas=true c
 
 REGRAS:
 - Mesmo nome com formatos numéricos diferentes (I=1=um, II=2=dois, III=3=tres) = DUPLICATAS (ex: "Belvedere 1" = "Belvedere I" = "Belvedere um")
-- Sufixos numéricos REALMENTE diferentes (1 vs 2, I vs III) = locais DIFERENTES
+- Sufixos numéricos REALMENTE diferentes (1 vs 2, I vs III) = locais DIFERENTES (etapas/fases diferentes)
+- Nome SEM sufixo numérico = primeira etapa (ex: "Belvedere" = "Belvedere 1" = "Belvedere I"). Portanto "Belvedere" ≠ "Belvedere 2" (são etapas diferentes)
 - Complementos Norte/Sul/Leste/Oeste = locais DIFERENTES
 - Variações de grafia do MESMO local = duplicatas (ex: "Condomínio X" = "Residencial X" = "X")
 - Abreviações = duplicatas (ex: "Ed. Aurora" = "Edifício Aurora")
-- Membro sem sufixo numérico vs com sufixo (ex: "Belvedere" vs "Belvedere 1") = potencial duplicata, considere como mesmo local
 
 ${gruposTexto}
 
